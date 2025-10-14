@@ -82,16 +82,21 @@ Exit behavior and errors:
 
 ## Config reference (data/retrieve-config-example.yml)
 
-The config file is a YAML document with three top-level sections:
+The config file is a YAML document with these top-level sections:
 - playfab_api_endpoint: string
 - request_body: mapping
 - output: mapping
+- flow_control: mapping (optional) — controls concurrency and pacing of requests
 
 Example (see data/retrieve-config-example.yml):
 
 ```yaml
 playfab_api_endpoint: https://XXXXXX.playfabapi.com
 
+flow_control:
+  concurrent_requests: 10
+  delay_s_after_requests: 2
+    
 request_body:
   # Matching RequestBody in https://learn.microsoft.com/en-us/rest/api/playfab/client/authentication/login-with-custom-id?view=playfab-rest
   TitleId: XXXXXX
@@ -145,6 +150,19 @@ Notes and details:
   - You can pass InfoRequestParameters to ask PlayFab to include additional info in the response (e.g., GetPlayerProfile, 
     GetUserData with specific UserDataKeys). See the InfoRequestParameters section: https://learn.microsoft.com/en-us/rest/api/playfab/client/authentication/login-with-custom-id?view=playfab-rest#inforequestparameters
   - The tool does not add or remove fields beyond performing these substitutions; it sends exactly what you put in request_body.
+- flow_control (optional)
+  - Controls how many requests are sent in parallel and how quickly they are paced.
+  - concurrent_requests: integer >= 1. Default: 1. The maximum number of in-flight requests. Internally this sets the ThreadPoolExecutor max_workers and the submission window; higher values increase throughput but also load your PlayFab title and can trigger rate limits.
+  - delay_s_after_requests: number >= 0. Default: 0. A per-request delay (in seconds) applied by each worker after it finishes a request. With concurrency C and average request latency L seconds, effective steady-state throughput is roughly C / (L + delay). Increase this when you see 429s or want to be gentle on the API.
+  - Example:
+    ```yaml
+    flow_control:
+      concurrent_requests: 10
+      delay_s_after_requests: 2
+    ```
+  - Notes:
+    - If flow_control is omitted, the tool behaves like a single-threaded runner (concurrent_requests=1) with no extra delay.
+    - If PlayFab returns Too Many Requests (HTTP 429) or you observe throttling, try lowering concurrent_requests and/or raising delay_s_after_requests.
 - output
   - outputFormat: one of json, yaml, ndjson, csv.
   - layout: a mapping of output field names to one or more extraction rules. Each rule is a mapping with:
@@ -179,6 +197,57 @@ Notes and details:
 
 Tip: Run with --verbose to print full response bodies to stderr; then craft/validate your JSONPath expressions interactively.
 
+
+## How to analyze the raw PlayFab response
+
+When you’re deciding which JSONPath expressions to use in output.layout, it helps to see the exact raw response from 
+PlayFab for your request.
+
+Follow these steps:
+
+1) Run a small sample with verbose logging
+- Use one or a few rows from your CSV and add --verbose. Example:
+  ```bash
+  playfab-retrieve-player with-custom-id \
+    --config data/retrieve-config-example.yml \
+    --input data/input-example.csv \
+    --output out.csv \
+    --verbose
+  ```
+- The tool prints grouped logs for each request to stderr (not to the output file). You will see the serialized payload 
+  and then the full JSON response body.
+
+2) Find the root of the data you need
+- For LoginWithCustomID, when InfoRequestParameters are used, most interesting data appears under:
+  - $.data.InfoResultPayload
+- Common examples you’ll see in the verbose response:
+  - $.data.InfoResultPayload.PlayerProfile.DisplayName
+  - $.data.InfoResultPayload.UserData["SomeKey"].Value
+
+3) Craft JSONPath expressions for your layout
+- Start paths at the root ($). Do not add an extra wrapper like $.response unless your actual response shows it (the CLI 
+  passes the parsed PlayFab JSON directly to the JSONPath evaluator).
+- Keys that contain dots or special characters must use bracket notation:
+  - $.data.InfoResultPayload.UserData["devhub.aptosWalletId"].Value
+- Arrays: use numeric indexes as needed (e.g., $.data.InfoResultPayload.SomeList[0].Id).
+- If a value you’re extracting is itself a JSON-encoded string (common in UserData), set json_parse: true so it becomes 
+  a structured object.
+  ```yaml
+  output:
+    outputFormat: csv
+    layout:
+      walletId:
+        - source: response
+          path: $.data.InfoResultPayload.UserData["devhub.aptosWalletId"].Value
+          json_parse: true
+  ```
+
+4) Validate and iterate
+- After editing your config, run again with --verbose and confirm that your fields extract correctly. If you see warnings 
+  like "No match for JSONPath ...", copy a small portion of the response shown in stderr and double-check your JSONPath 
+  against that structure.
+- Tip: You can paste a single response object into an online JSONPath tester to trial expressions before adding them to 
+  your config.
 
 ## Examples
 
