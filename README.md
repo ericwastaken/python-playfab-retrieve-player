@@ -6,8 +6,11 @@ CLI to retrieve PlayFab player information for a list of custom IDs provided in 
 - Extract fields from PlayFab responses using JSONPath expressions into a structured output in JSON, YAML, NDJSON, or CSV.
 
 This README covers both regular usage and developer notes. It references the examples included in this repository:
-- data/input-example.csv
-- data/retrieve-config-example.yml
+- data/input-example-customid.csv
+- data/retrieve-config-example-customid.yml
+- data/input-example-playfabid.csv
+- data/retrieve-config-example-playfabid.yml
+- data/secrets-example.env
 
 Useful PlayFab documentation:
 - LoginWithCustomID REST reference: https://learn.microsoft.com/en-us/rest/api/playfab/client/authentication/login-with-custom-id?view=playfab-rest
@@ -30,7 +33,7 @@ Useful PlayFab documentation:
   - `python -m venv .venv && .venv/bin/python -m pip install -U pip && .venv/bin/pip install -e .`
 
 2) Prepare your input CSV
-- Use data/input-example.csv as a template. The CSV can have any header columns you prefer; there is no strict requirement 
+- Use data/input-example-customid.csv (for with-custom-id) or data/input-example-playfabid.csv (for with-playfab-id) as a template. The CSV can have any header columns you prefer; there is no strict requirement 
   for a column named customId. Columns can be referenced in the request body using the $.<column-name> notation. Example:
   ```text
   "customId","batchTag"
@@ -39,12 +42,12 @@ Useful PlayFab documentation:
   ```
   
 3) Prepare your config YAML
-- Copy data/retrieve-config-example.yml to a new file (e.g., data/retrieve-config.yml) and edit it. Details of each 
-  field are described below in Config reference.
+- Copy the example that matches your command to a new file (e.g., data/retrieve-config.yml) and edit it. Details of each 
+  field are described below in Config reference. Examples: data/retrieve-config-example-customid.yml (with-custom-id), data/retrieve-config-example-playfabid.yml (with-playfab-id).
 
 4) Run the tool
 - Example command:
-  - `playfab-retrieve-player with-custom-id --config data/retrieve-config.yml --input data/input.csv --output out.csv`
+  - `playfab-retrieve-player with-custom-id --config data/retrieve-config-example-customid.yml --input data/input-example-customid.csv --output out.csv`
 - On start, the tool prints a verification summary showing the endpoint, total requests, a resolvedCustomIdExample 
   (taken from the first row after substitutions), and a payload example. You must confirm to proceed.
 - Use --verbose to print each request payload and the full response bodies to stderr.
@@ -130,8 +133,8 @@ Follow these steps:
 - Use one or a few rows from your CSV and add --verbose. Example:
   ```bash
   playfab-retrieve-player with-custom-id \
-    --config data/retrieve-config-example.yml \
-    --input data/input-example.csv \
+    --config data/retrieve-config-example-customid.yml \
+    --input data/input-example-customid.csv \
     --output out.csv \
     --verbose
   ```
@@ -159,7 +162,7 @@ Follow these steps:
     layout:
       walletId:
         - source: response
-          path: $.data.InfoResultPayload.UserData["devhub.aptosWalletId"].Value
+          path: $.data.InfoResultPayload.UserData["SomeKey"].Value
           json_parse: true
   ```
 
@@ -175,8 +178,8 @@ Follow these steps:
 - Using the included examples:
   ```bash
   playfab-retrieve-player with-custom-id \
-    --config data/retrieve-config-example.yml \
-    --input data/input-example.csv \
+    --config data/retrieve-config-example-customid.yml \
+    --input data/input-example-customid.csv \
     --output out.csv \
     --verbose
   ```
@@ -200,13 +203,13 @@ Calls PlayFab Client LoginWithCustomID for each row in your CSV.
 - Example run:
   ```bash
   playfab-retrieve-player with-custom-id \
-    --config data/retrieve-config-example.yml \
-    --input data/input-example.csv \
+    --config data/retrieve-config-example-customid.yml \
+    --input data/input-example-customid.csv \
     --output out.csv \
     --verbose
   ```
 
-Example (see data/retrieve-config-example.yml):
+Example (see data/retrieve-config-example-customid.yml):
 
 ```yaml
 playfab_api_endpoint: https://XXXXXX.playfabapi.com
@@ -319,9 +322,9 @@ Run:
 ```bash
 playfab-retrieve-player with-playfab-id \
   --config data/retrieve-config-example-playfabid.yml \
-  --input data/your-input.csv \
+  --input data/input-example-playfabid.csv \
   --output out.csv \
-  --secrets data/pfan-secrets.env \
+  --secrets data/secrets-example.env \
   --verbose
 ```
 
@@ -350,7 +353,7 @@ The following concepts and behaviors are common to all sub-commands:
         layout:
           walletId:
             - source: response
-              path: $.response.data.InfoResultPayload.UserData["devhub.aptosWalletId"].Value
+              path: $.response.data.InfoResultPayload.UserData["SomeKey"].Value
               json_parse: true
         ```
     - Option B — Extended path wrapper: json_parse(INNER_JSONPATH)SUFFIX
@@ -396,7 +399,7 @@ Notes:
   python -m pip install -r requirements.txt
   ```
 - Local run:
-    - `playfab-retrieve-player with-custom-id --config data/retrieve-config-example.yml --input data/input-example.csv --output out.csv --verbose`
+    - `playfab-retrieve-player with-custom-id --config data/retrieve-config-example-customid.yml --input data/input-example-customid.csv --output out.csv --verbose`
 - Code layout
     - playfab_retrieve/cli.py contains the CLI and all logic for config loading, CSV reading, HTTP requests, extraction,
       and output writing.

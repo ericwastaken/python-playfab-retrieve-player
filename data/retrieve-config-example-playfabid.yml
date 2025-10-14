@@ -4,16 +4,17 @@ flow_control:
   concurrent_requests: 10
   delay_s_after_requests: 2
 
+request_header:
+  X-SecretKey: { $secrets: SERVER_SECRET_KEY }
+
 request_body:
-  # Matching RequestBody in https://learn.microsoft.com/en-us/rest/api/playfab/client/authentication/login-with-custom-id?view=playfab-rest
-  TitleId: XXXXXX
-  CustomId: $.customId
-  CreateAccount: false
+  # Matching RequestBody in https://learn.microsoft.com/en-us/rest/api/playfab/server/player-data-management/get-player-combined-info?view=playfab-rest
+  PlayFabId: $.PlayFabId
   # You can reference ANY input CSV column via $.<column-name>.
   # Example: send a CustomTag named 'batch' from the CSV 'batchTag' column
   CustomTags:
     batch: $.batchTag
-  # Matching https://learn.microsoft.com/en-us/rest/api/playfab/client/authentication/login-with-custom-id?view=playfab-rest#inforequestparameters
+  # Matching https://learn.microsoft.com/en-us/rest/api/playfab/server/player-data-management/get-player-combined-info?view=playfab-rest#getplayercombinedinforequestparams
   InfoRequestParameters:
     GetPlayerProfile: true
     ProfileConstraints:
@@ -28,9 +29,9 @@ output:
   outputFormat: csv
   # The file layout. In the case of CSV, all nesting is flattened.
   layout:
-    customId:
+    playFabId:
       - source: inputcsv
-        path: customId
+        path: PlayFabId
     displayName:
       - source: response
         path: $.response.data.InfoResultPayload.PlayerProfile.DisplayName

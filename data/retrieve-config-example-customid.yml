@@ -1,0 +1,44 @@
+playfab_api_endpoint: https://XXXXXX.playfabapi.com
+
+flow_control:
+  concurrent_requests: 10
+  delay_s_after_requests: 2
+
+request_body:
+  # Matching RequestBody in https://learn.microsoft.com/en-us/rest/api/playfab/client/authentication/login-with-custom-id?view=playfab-rest
+  TitleId: XXXXXX
+  CustomId: $.CustomId
+  CreateAccount: false
+  # You can reference ANY input CSV column via $.<column-name>.
+  # Example: send a CustomTag named 'batch' from the CSV 'batchTag' column
+  CustomTags:
+    batch: $.batchTag
+  # Matching https://learn.microsoft.com/en-us/rest/api/playfab/client/authentication/login-with-custom-id?view=playfab-rest#inforequestparameters
+  InfoRequestParameters:
+    GetPlayerProfile: true
+    ProfileConstraints:
+      ShowDisplayName: true
+    GetUserData: true
+    UserDataKeys:
+      - "your-user-data-key-name"
+      - "your-user-data-key-name-2"
+
+output:
+  # outputFormat: yaml, json, ndjson, csv
+  outputFormat: csv
+  # The file layout. In the case of CSV, all nesting is flattened.
+  layout:
+    customId:
+      - source: inputcsv
+        path: customId
+    displayName:
+      - source: response
+        path: $.response.data.InfoResultPayload.PlayerProfile.DisplayName
+    someCustomKey:
+      - source: response
+        path: $.response.data.InfoResultPayload.UserData["your-user-data-key-name"].Value
+        json_parse: true
+    someCustomKey2:
+      - source: response
+        path: $.response.data.InfoResultPayload.UserData["your-user-data-key-name-2"].Value
+        json_parse: true
