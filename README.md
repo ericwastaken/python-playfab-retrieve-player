@@ -19,14 +19,18 @@ Useful PlayFab documentation:
 
 ## Quick start (users)
 
-1) Install
-- It’s recommended to use a virtual environment first.
-- Install the package from the repo root:
-  - Editable (dev):
-    - `python -m pip install -e .`
-    - See [Developer Guide](#developer-guide) below for more details.
-  - Regular:
-    - `pip install .`
+1) Install (venv will be created)
+- Use the provided bootstrap script to automatically create .venv and install the package:
+  - Regular install:
+    - `python3 bootstrap.py`
+  - Editable (dev) install:
+    - `python3 bootstrap.py --editable`
+  - One-shot: install then run the CLI without activating the venv:
+    - `python3 bootstrap.py -- run playfab-retrieve-player --help`
+- After install, you can run the CLI without activating the venv:
+  - `./.venv/bin/playfab-retrieve-player --help`
+- If you prefer to manage venvs yourself, you can still do:
+  - `python -m venv .venv && .venv/bin/python -m pip install -U pip && .venv/bin/pip install -e .`
 
 2) Prepare your input CSV
 - Use data/input-example.csv as a template. The CSV can have any header columns you prefer; there is no strict requirement 
@@ -43,7 +47,7 @@ Useful PlayFab documentation:
 
 4) Run the tool
 - Example command:
-  - `playfab-retrieve with-custom-id --config data/retrieve-config.yml --input data/input.csv --output out.csv`
+  - `playfab-retrieve-player with-custom-id --config data/retrieve-config.yml --input data/input.csv --output out.csv`
 - On start, the tool prints a verification summary showing the endpoint, total requests, a resolvedCustomIdExample 
   (taken from the first row after substitutions), and a payload example. You must confirm to proceed.
 - Use --verbose to print each request payload and the full response bodies to stderr.
@@ -52,8 +56,8 @@ Useful PlayFab documentation:
 ## CLI usage
 
 After installation, the CLI entry point is available as a command group:
-- `playfab-retrieve --help` (shows available commands)
-- `playfab-retrieve with-custom-id --help` (shows options for this command)
+- `playfab-retrieve-player --help` (shows available commands)
+- `playfab-retrieve-player with-custom-id --help` (shows options for this command)
 
 Commands:
 - with-custom-id
@@ -182,7 +186,7 @@ Tip: Run with --verbose to print full response bodies to stderr; then craft/vali
 
 - Using the included examples:
   ```bash
-  playfab-retrieve with-custom-id \
+  playfab-retrieve-player with-custom-id \
     --config data/retrieve-config-example.yml \
     --input data/input-example.csv \
     --output out.csv \
@@ -191,7 +195,7 @@ Tip: Run with --verbose to print full response bodies to stderr; then craft/vali
 
 - Change layout to write JSON instead of CSV:
   - In your config set outputFormat: json, then:
-  - `playfab-retrieve with-custom-id --config data/retrieve-config.yml --input data/input.csv --output out.json`
+  - `playfab-retrieve-player with-custom-id --config data/retrieve-config.yml --input data/input.csv --output out.json`
 
 
 ## Developer guide
@@ -208,7 +212,7 @@ Tip: Run with --verbose to print full response bodies to stderr; then craft/vali
   python -m pip install -r requirements.txt
   ```
 - Local run:
-  - `playfab-retrieve with-custom-id --config data/retrieve-config-example.yml --input data/input-example.csv --output out.csv --verbose`
+  - `playfab-retrieve-player with-custom-id --config data/retrieve-config-example.yml --input data/input-example.csv --output out.csv --verbose`
 - Code layout
   - playfab_retrieve/cli.py contains the CLI and all logic for config loading, CSV reading, HTTP requests, extraction, 
     and output writing.

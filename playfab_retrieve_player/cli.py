@@ -282,7 +282,7 @@ def main(ctx: click.Context) -> None:
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
         # Provide a friendly hint and non-zero exit to indicate a command is required
-        raise click.ClickException("No command specified. Please run: playfab-retrieve with-custom-id --help")
+        raise click.ClickException("No command specified. Please run: playfab-retrieve-player with-custom-id --help")
 
 
 @main.command("with-custom-id", help="Call PlayFab Client LoginWithCustomID for each row in the CSV. Column names are mapped via '$.<columnName>' in request_body; no fixed 'customId' column is required.")

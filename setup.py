@@ -52,15 +52,15 @@ class install(_install):
         try:
             self._create_venv()
         except Exception as e:
-            print(f"[playfab-retrieve] Warning: Failed to create local .venv: {e}", file=sys.stderr)
+            print(f"[playfab-retrieve-player] Warning: Failed to create local .venv: {e}", file=sys.stderr)
 
     def _create_venv(self):
         import venv
 
         if VENV_DIR.exists():
-            print(f"[playfab-retrieve] Existing venv found at {VENV_DIR}")
+            print(f"[playfab-retrieve-player] Existing venv found at {VENV_DIR}")
             return
-        print(f"[playfab-retrieve] Creating venv at {VENV_DIR} ...")
+        print(f"[playfab-retrieve-player] Creating venv at {VENV_DIR} ...")
         builder = venv.EnvBuilder(with_pip=True, clear=False)
         builder.create(str(VENV_DIR))
 
@@ -74,15 +74,15 @@ class install(_install):
         try:
             subprocess.check_call([str(pip_bin), "install", "--upgrade", "pip", "setuptools", "wheel"]) 
             if REQ_FILE.exists():
-                print(f"[playfab-retrieve] Installing requirements from {REQ_FILE} into .venv ...")
+                print(f"[playfab-retrieve-player] Installing requirements from {REQ_FILE} into .venv ...")
                 subprocess.check_call([str(pip_bin), "install", "-r", str(REQ_FILE)])
         except subprocess.CalledProcessError as e:
-            print(f"[playfab-retrieve] Warning: pip install inside .venv failed: {e}", file=sys.stderr)
+            print(f"[playfab-retrieve-player] Warning: pip install inside .venv failed: {e}", file=sys.stderr)
 
 
 setup(
     name="playfab-retrieve-player",
-    version="1.0.0",
+    version="1.0.1",
     description=(
         "CLI to retrieve PlayFab player information for a list from a CSV."
     ),
