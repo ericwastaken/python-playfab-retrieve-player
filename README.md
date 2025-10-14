@@ -1,7 +1,6 @@
-# python-playfab-retrieve
+# playfab-retrieve-player
 
-CLI to retrieve PlayFab player information by calling the Client LoginWithCustomID endpoint for a list of custom IDs 
-provided in a CSV. The tool lets you:
+CLI to retrieve PlayFab player information for a list of custom IDs provided in a CSV. The tool lets you:
 - Build the exact request body you want to send to PlayFab (including InfoRequestParameters) using a YAML config.
 - Substitute data from the input CSV into the request body (e.g., set CustomId from a CSV column).
 - Extract fields from PlayFab responses using JSONPath expressions into a structured output in JSON, YAML, NDJSON, or CSV.
