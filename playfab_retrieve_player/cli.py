@@ -1,5 +1,7 @@
 import json
 import sys
+import time
+import signal
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -15,6 +17,8 @@ class Config:
     request_body_template: Dict[str, Any]
     output_layout: Dict[str, List[Dict[str, Union[str, bool]]]]
     output_format: str  # one of: json, yaml, csv, ndjson
+    concurrent_requests: int = 1
+    delay_s_after_requests: float = 0.0
 
 
 
@@ -34,6 +38,29 @@ def load_config(path: str) -> Config:
     endpoint = data.get("playfab_api_endpoint")
     if not endpoint:
         raise click.ClickException("Config missing required 'playfab_api_endpoint'.")
+
+    # Optional concurrency control (new: flow_control.concurrent_requests; legacy: concurrent_requests)
+    conc_source = "flow_control.concurrent_requests" if isinstance(data.get("flow_control"), dict) and "concurrent_requests" in data.get("flow_control", {}) else "concurrent_requests"
+    if conc_source == "flow_control.concurrent_requests":
+        conc = data.get("flow_control", {}).get("concurrent_requests", 1)
+    else:
+        conc = data.get("concurrent_requests", 1)
+    try:
+        conc = int(conc)
+    except Exception:
+        raise click.ClickException("Config 'flow_control.concurrent_requests' (or legacy 'concurrent_requests') must be an integer >= 1.")
+    if conc < 1:
+        raise click.ClickException("Config 'flow_control.concurrent_requests' (or legacy 'concurrent_requests') must be >= 1.")
+
+    # Optional per-request delay (new: flow_control.delay_s_after_requests)
+    flow = data.get("flow_control") or {}
+    delay = flow.get("delay_s_after_requests", 0)
+    try:
+        delay = float(delay)
+    except Exception:
+        raise click.ClickException("Config 'flow_control.delay_s_after_requests' must be a number >= 0.")
+    if delay < 0:
+        raise click.ClickException("Config 'flow_control.delay_s_after_requests' must be >= 0.")
 
     # Require new 'request_body' block (no legacy support)
     request_body = data.get("request_body")
@@ -100,6 +127,8 @@ def load_config(path: str) -> Config:
         request_body_template=rb_norm,
         output_layout=norm_layout,
         output_format=output_format,
+        concurrent_requests=conc,
+        delay_s_after_requests=delay,
     )
 
 
@@ -329,97 +358,241 @@ def cmd_with_custom_id(config_path: str, input_csv: str, output_path: str, verbo
     if not click.confirm("Proceed with the requests?", default=False):
         raise click.ClickException("Aborted by user.")
 
-    # Fetch all records
-    records = []
-    for i, row in enumerate(rows, start=1):
-        payload = build_request_payload(cfg.request_body_template, row)
-        unresolved_row = _find_unresolved_placeholders(payload)
-        if unresolved_row:
-            raise click.ClickException(
-                f"Row {i}: some placeholders in request_body could not be resolved from the CSV: "
-                + ", ".join(unresolved_row)
-            )
-        aid = _ensure_custom_id_present(payload)
-        if not aid:
-            raise click.ClickException(
-                f"Row {i}: 'CustomId' from request_body did not resolve to a non-empty value."
-            )
-        _log(f"[{i}/{len(rows)}] Requesting LoginWithCustomID for customId='{aid}'", verbose)
-        # In verbose mode, show the exact payload as it will be sent (same serialization as the request)
-        data_str = json.dumps(payload)
-        _log(f"[{i}/{len(rows)}] Payload to be sent: {data_str}", verbose, level="DEBUG")
-        status, body = login_with_custom_id(cfg.playfab_api_endpoint, payload)
-        _log(f"[{i}/{len(rows)}] Received status {status}", verbose)
-        if verbose:
-            try:
-                pretty = json.dumps(body, ensure_ascii=False, indent=2)
-            except Exception:
-                pretty = str(body)
-            if 200 <= int(status) < 300:
-                _log(f"[{i}/{len(rows)}] Response body:", verbose, level="DEBUG")
-            else:
-                _log(f"Non-2xx response for customId='{aid}'. Full response body follows:", verbose, level="ERROR")
-            sys.stderr.write(pretty + "\n")
-            sys.stderr.flush()
-        record = _build_output_record(cfg.output_layout, row, body, verbose=verbose)
-        records.append(record)
-
-    # Write output in the requested format
+    # Determine output mode
     fmt = cfg.output_format
+
+    # Helper to flatten nested dict/list values when writing CSV
+    def _flatten(prefix: str, value: Any, out: Dict[str, Any]) -> None:
+        key_prefix = prefix + "." if prefix else ""
+        if isinstance(value, dict):
+            for k, v in value.items():
+                _flatten(key_prefix + str(k), v, out)
+        elif isinstance(value, list):
+            for idx, item in enumerate(value):
+                if isinstance(item, (dict, list)):
+                    _flatten(f"{key_prefix}{idx}", item, out)
+                else:
+                    out[f"{key_prefix}{idx}"] = item
+        else:
+            out[prefix] = value
+
+    # Prepare writers for progressive output
+    csv_writer = None
+    csv_header = None
+    out_file_handle = None
+
     try:
         if fmt == "ndjson":
-            with open(output_path, "w", encoding="utf-8", newline="\n") as out_f:
-                for rec in records:
-                    out_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-        elif fmt == "json":
-            with open(output_path, "w", encoding="utf-8") as out_f:
-                json.dump(records, out_f, ensure_ascii=False, indent=2)
-        elif fmt == "yaml":
-            with open(output_path, "w", encoding="utf-8") as out_f:
-                yaml.safe_dump(records, out_f, allow_unicode=True, sort_keys=False)
+            out_file_handle = open(output_path, "w", encoding="utf-8", newline="\n")
         elif fmt == "csv":
             import csv
-
-            def _flatten(prefix: str, value: Any, out: Dict[str, Any]) -> None:
-                key_prefix = prefix + "." if prefix else ""
-                if isinstance(value, dict):
-                    for k, v in value.items():
-                        _flatten(key_prefix + str(k), v, out)
-                elif isinstance(value, list):
-                    for idx, item in enumerate(value):
-                        if isinstance(item, (dict, list)):
-                            _flatten(f"{key_prefix}{idx}", item, out)
-                        else:
-                            out[f"{key_prefix}{idx}"] = item
-                else:
-                    out[prefix] = value
-
-            flat_records: List[Dict[str, Any]] = []
-            header_set: List[str] = []
-            seen = set()
-            for rec in records:
-                flat: Dict[str, Any] = {}
-                for k, v in rec.items():
-                    if isinstance(v, (dict, list)):
-                        _flatten(k, v, flat)
-                    else:
-                        flat[k] = v
-                flat_records.append(flat)
-                for col in flat.keys():
-                    if col not in seen:
-                        seen.add(col)
-                        header_set.append(col)
-
-            with open(output_path, "w", encoding="utf-8", newline="") as out_f:
-                writer = csv.DictWriter(out_f, fieldnames=header_set)
-                writer.writeheader()
-                for row in flat_records:
-                    writer.writerow({h: row.get(h, "") for h in header_set})
+            out_file_handle = open(output_path, "w", encoding="utf-8", newline="")
+            # We will derive header from layout keys; nested objects will be flattened under these roots
+            csv_header = list(cfg.output_layout.keys())
+            csv_writer = csv.DictWriter(out_file_handle, fieldnames=csv_header)
+            csv_writer.writeheader()
+        elif fmt in ("json", "yaml"):
+            # For JSON/YAML we still collect in memory, but requests will still be concurrent
+            pass
         else:
             raise click.ClickException(f"Unhandled output format: {fmt}")
-        _log(f"Wrote {len(records)} records to {output_path} as {fmt}", verbose)
+
+        # Concurrency setup with graceful Ctrl+C and per-request grouped logs
+        from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+
+        interrupted = False
+
+        def _sigint_handler(signum, frame):
+            nonlocal interrupted
+            if not interrupted:
+                interrupted = True
+                _log("CTRL+C detected: stopping new submissions and waiting for in-flight requests to finish...", verbose, level="WARNING")
+
+        old_sigint = signal.getsignal(signal.SIGINT)
+        try:
+            signal.signal(signal.SIGINT, _sigint_handler)
+        except Exception:
+            # On some platforms (e.g., Windows in certain contexts) setting signals may fail; ignore
+            old_sigint = None
+
+        def task_do(i: int, row: Dict[str, Any]) -> Tuple[int, Dict[str, Any], str]:
+            logs: List[str] = []
+
+            def log_line(message: str, level: str = "INFO") -> None:
+                if level == "DEBUG" and not verbose:
+                    return
+                logs.append(f"[{level}] [{i}/{len(rows)}] {message}")
+
+            payload = build_request_payload(cfg.request_body_template, row)
+            unresolved_row = _find_unresolved_placeholders(payload)
+            if unresolved_row:
+                raise click.ClickException(
+                    f"Row {i}: some placeholders in request_body could not be resolved from the CSV: "
+                    + ", ".join(unresolved_row)
+                )
+            aid = _ensure_custom_id_present(payload)
+            if not aid:
+                raise click.ClickException(
+                    f"Row {i}: 'CustomId' from request_body did not resolve to a non-empty value."
+                )
+            log_line(f"Requested LoginWithCustomID for customId='{aid}'")
+            data_str = json.dumps(payload)
+            log_line(f"Payload to be sent: {data_str}", level="DEBUG")
+            status, body = login_with_custom_id(cfg.playfab_api_endpoint, payload)
+            log_line(f"Received status {status}")
+            if verbose:
+                try:
+                    pretty = json.dumps(body, ensure_ascii=False, indent=2)
+                except Exception:
+                    pretty = str(body)
+                if 200 <= int(status) < 300:
+                    log_line("Response body:", level="DEBUG")
+                else:
+                    logs.append("[ERROR] " + f"Non-2xx response for customId='{aid}'. Full response body follows:")
+                logs.append(pretty)
+            # Apply per-request delay, if configured
+            if cfg.delay_s_after_requests and cfg.delay_s_after_requests > 0:
+                log_line(f"Delaying {cfg.delay_s_after_requests} seconds after request as per flow_control.delay_s_after_requests", level="DEBUG")
+                time.sleep(cfg.delay_s_after_requests)
+            record = _build_output_record(cfg.output_layout, row, body, verbose=verbose)
+            return i, record, "\n".join(logs)
+
+        # Execute tasks concurrently and write progressively as they finish
+        collected_for_buffer_formats: List[Dict[str, Any]] = []
+        pending = set()
+        processed_count = 0
+        try:
+            with ThreadPoolExecutor(max_workers=cfg.concurrent_requests) as executor:
+                total = len(rows)
+                next_i = 1
+
+                def submit_one(idx: int) -> None:
+                    nonlocal pending
+                    fut = executor.submit(task_do, idx, rows[idx - 1])
+                    pending.add(fut)
+
+                # Prime initial submissions
+                while next_i <= total and len(pending) < cfg.concurrent_requests and not interrupted:
+                    submit_one(next_i)
+                    next_i += 1
+
+                # Process as tasks complete; submit next unless interrupted
+                while pending:
+                    done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                    for fut in done:
+                        try:
+                            i, rec, logbuf = fut.result()
+                        except Exception as e:
+                            _log(f"Task failed: {e}", verbose, level="ERROR")
+                            continue
+                        # Print grouped logs for this request atomically
+                        if logbuf:
+                            sys.stderr.write(logbuf + "\n")
+                            sys.stderr.flush()
+                        # Progressive output writing
+                        if fmt == "ndjson":
+                            out_file_handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                            out_file_handle.flush()
+                        elif fmt == "csv":
+                            row_out: Dict[str, Any] = {}
+                            for k in csv_header:
+                                v = rec.get(k)
+                                if isinstance(v, (dict, list)):
+                                    flat: Dict[str, Any] = {}
+                                    _flatten(k, v, flat)
+                                    subkeys = [sk for sk in flat.keys() if sk.startswith(k + ".")]
+                                    if subkeys:
+                                        row_out[k] = json.dumps({sk[len(k)+1:]: flat[sk] for sk in subkeys}, ensure_ascii=False)
+                                    else:
+                                        row_out[k] = json.dumps(v, ensure_ascii=False)
+                                else:
+                                    row_out[k] = v
+                            csv_writer.writerow(row_out)
+                            out_file_handle.flush()
+                        else:
+                            collected_for_buffer_formats.append(rec)
+                        processed_count += 1
+                    # Top up submissions
+                    while next_i <= total and len(pending) < cfg.concurrent_requests and not interrupted:
+                        submit_one(next_i)
+                        next_i += 1
+        except KeyboardInterrupt:
+            interrupted = True
+            # Attempt to cancel anything not yet running
+            try:
+                for fut in list(pending):
+                    if not fut.running() and not fut.done():
+                        fut.cancel()
+            except Exception:
+                pass
+            in_flight = sum(1 for f in pending if not f.cancelled())
+            _log(f"CTRL+C received. Waiting for {in_flight} in-flight request(s) to finish...", verbose, level="WARNING")
+            # Wait for running ones to finish and output their results
+            try:
+                done, still = wait(pending, return_when=None)
+                for fut in done:
+                    if fut.cancelled():
+                        continue
+                    try:
+                        i, rec, logbuf = fut.result()
+                    except Exception as e:
+                        _log(f"Task failed during shutdown: {e}", verbose, level="ERROR")
+                        continue
+                    if logbuf:
+                        sys.stderr.write(logbuf + "\n")
+                        sys.stderr.flush()
+                    if fmt == "ndjson":
+                        out_file_handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                        out_file_handle.flush()
+                    elif fmt == "csv":
+                        row_out: Dict[str, Any] = {}
+                        for k in csv_header:
+                            v = rec.get(k)
+                            if isinstance(v, (dict, list)):
+                                flat: Dict[str, Any] = {}
+                                _flatten(k, v, flat)
+                                subkeys = [sk for sk in flat.keys() if sk.startswith(k + ".")]
+                                if subkeys:
+                                    row_out[k] = json.dumps({sk[len(k)+1:]: flat[sk] for sk in subkeys}, ensure_ascii=False)
+                                else:
+                                    row_out[k] = json.dumps(v, ensure_ascii=False)
+                            else:
+                                row_out[k] = v
+                        csv_writer.writerow(row_out)
+                        out_file_handle.flush()
+                    else:
+                        collected_for_buffer_formats.append(rec)
+                    processed_count += 1
+            except Exception:
+                pass
+        finally:
+            # Restore original SIGINT handler if we changed it
+            try:
+                if old_sigint is not None:
+                    signal.signal(signal.SIGINT, old_sigint)
+            except Exception:
+                pass
+
+        # Finalize buffered formats
+
+        # Finalize buffered formats
+        if fmt == "json":
+            with open(output_path, "w", encoding="utf-8") as out_f:
+                json.dump(collected_for_buffer_formats, out_f, ensure_ascii=False, indent=2)
+        elif fmt == "yaml":
+            with open(output_path, "w", encoding="utf-8") as out_f:
+                yaml.safe_dump(collected_for_buffer_formats, out_f, allow_unicode=True, sort_keys=False)
+
+        _log(f"Processed {processed_count} of {len(rows)} requests with concurrency={cfg.concurrent_requests}. Output written to {output_path} as {fmt}.", verbose)
+
     except OSError as e:
         raise click.ClickException(f"Failed to write output file: {e}")
+    finally:
+        try:
+            if out_file_handle is not None:
+                out_file_handle.close()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

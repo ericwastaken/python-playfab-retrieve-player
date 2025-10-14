@@ -1,5 +1,9 @@
 playfab_api_endpoint: https://XXXXXX.playfabapi.com
 
+flow_control:
+  concurrent_requests: 10
+  delay_s_after_requests: 2
+
 request_body:
   # Matching RequestBody in https://learn.microsoft.com/en-us/rest/api/playfab/client/authentication/login-with-custom-id?view=playfab-rest
   TitleId: XXXXXX
