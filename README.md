@@ -25,7 +25,7 @@ Useful PlayFab documentation:
   - Editable (dev) install:
     - `python3 bootstrap.py --editable`
 - After install, you can run the CLI without activating the venv:
-  - `.playfab-retrieve-player --help`
+  - `./playfab-retrieve-player --help`
 - If you prefer to manage venvs yourself, you can still do:
   - `python -m venv .venv && .venv/bin/python -m pip install -U pip && .venv/bin/pip install -e .`
 
