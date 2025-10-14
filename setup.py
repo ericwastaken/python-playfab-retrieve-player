@@ -35,8 +35,8 @@ def read_readme():
             except Exception:
                 break
     return (
-        "python-playfab-retrieve-player: CLI to retrieve PlayFab player information via "
-        "LoginWithCustomID for a list of custom IDs from a CSV."
+        "playfab-retrieve-player: CLI to retrieve PlayFab player information for "
+        "a list of custom IDs from a CSV."
     )
 
 
@@ -82,9 +82,9 @@ class install(_install):
 
 setup(
     name="playfab-retrieve-player",
-    version="0.1.0",
+    version="1.0.0",
     description=(
-        "CLI to retrieve PlayFab player information via LoginWithCustomID for a list of custom IDs from a CSV"
+        "CLI to retrieve PlayFab player information for a list from a CSV."
     ),
     long_description=read_readme(),
     long_description_content_type="text/markdown",
