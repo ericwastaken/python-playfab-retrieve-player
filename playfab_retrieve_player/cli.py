@@ -105,7 +105,7 @@ def load_config(path: str) -> Config:
 
 def read_input_rows(csv_path: str) -> List[Dict[str, Optional[str]]]:
     """Read the entire CSV as strings and return a list of row dicts.
-    Requires an 'customId' column.
+    No specific column is required; any column names can be referenced via '$.<columnName>' in the request_body template.
     """
     try:
         import pandas as pd
@@ -117,15 +117,9 @@ def read_input_rows(csv_path: str) -> List[Dict[str, Optional[str]]]:
         raise click.ClickException(f"Failed to read CSV: {e}")
     if df is None or df.empty:
         raise click.ClickException("Input CSV appears to be empty.")
-    if "customId" not in df.columns:
-        raise click.ClickException("Input CSV must contain an 'customId' header column.")
     # strip quotes/whitespace for all string cells
     df = df.map(lambda v: v.strip().strip('"') if isinstance(v, str) else v)
     rows: List[Dict[str, Optional[str]]] = [dict(r) for r in df.to_dict(orient="records")]
-    # filter out rows with empty customId
-    rows = [r for r in rows if str(r.get("customId") or "").strip()]
-    if not rows:
-        raise click.ClickException("No customId values found in input CSV.")
     return rows
 
 
@@ -233,7 +227,7 @@ def _resolve_jsonpath_for_row(expr: str, row: Dict[str, Any]) -> Any:
 
 def build_request_payload(template: Dict[str, Any], row: Dict[str, Any]) -> Dict[str, Any]:
     """Build the LoginWithCustomID payload strictly from the request_body template and a CSV row.
-    - Replace any string values that look like JSONPath (e.g., '$.customId') with row values.
+    - Replace any string values that look like JSONPath (e.g., '$.artifactId') with row values.
     - Do NOT inject TitleId or otherwise modify the structure beyond substitutions.
     """
     def _walk(val: Any) -> Any:
@@ -253,6 +247,30 @@ def build_request_payload(template: Dict[str, Any], row: Dict[str, Any]) -> Dict
     return payload
 
 
+def _find_unresolved_placeholders(obj: Any, path: str = "$") -> List[str]:
+    """Return list of JSON-like paths within obj where string values still start with '$.'"""
+    unresolved: List[str] = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            unresolved.extend(_find_unresolved_placeholders(v, f"{path}.{k}"))
+    elif isinstance(obj, list):
+        for idx, v in enumerate(obj):
+            unresolved.extend(_find_unresolved_placeholders(v, f"{path}[{idx}]"))
+    elif isinstance(obj, str):
+        if obj.startswith("$."):
+            unresolved.append(path)
+    return unresolved
+
+
+def _ensure_custom_id_present(payload: Dict[str, Any]) -> Optional[str]:
+    """Ensure payload contains a non-empty 'CustomId'. Return its string value if present, else None."""
+    cid = payload.get("CustomId")
+    if cid is None:
+        return None
+    cid_str = str(cid).strip()
+    return cid_str or None
+
+
 @click.group(invoke_without_command=True)
 @click.pass_context
 def main(ctx: click.Context) -> None:
@@ -267,9 +285,9 @@ def main(ctx: click.Context) -> None:
         raise click.ClickException("No command specified. Please run: playfab-retrieve with-custom-id --help")
 
 
-@main.command("with-custom-id", help="Call PlayFab Client LoginWithCustomID for each row in the CSV. Requires at least a 'customId' column in --input.")
+@main.command("with-custom-id", help="Call PlayFab Client LoginWithCustomID for each row in the CSV. Column names are mapped via '$.<columnName>' in request_body; no fixed 'customId' column is required.")
 @click.option("--config", "config_path", required=True, type=click.Path(exists=True, dir_okay=False, readable=True), help="Path to YAML config file.")
-@click.option("--input", "input_csv", required=True, type=click.Path(exists=True, dir_okay=False, readable=True), help="Path to CSV with a 'customId' column.")
+@click.option("--input", "input_csv", required=True, type=click.Path(exists=True, dir_okay=False, readable=True), help="Path to CSV file with arbitrary columns.")
 @click.option("--output", "output_path", required=True, type=click.Path(dir_okay=False, writable=True), help="Path to write results. Format determined by config 'output.outputFormat' (json|yaml|ndjson|csv).")
 @click.option("--verbose", is_flag=True, default=False, help="Enable detailed logging; request payloads and response bodies will be printed.")
 def cmd_with_custom_id(config_path: str, input_csv: str, output_path: str, verbose: bool) -> None:
@@ -286,10 +304,21 @@ def cmd_with_custom_id(config_path: str, input_csv: str, output_path: str, verbo
     # Build an example payload from the first row to show the user what will be sent
     sample_row = rows[0]
     sample_payload = build_request_payload(cfg.request_body_template, sample_row)
+    unresolved = _find_unresolved_placeholders(sample_payload)
+    resolved_cid = _ensure_custom_id_present(sample_payload)
+    if unresolved:
+        raise click.ClickException(
+            "Some placeholders in request_body could not be resolved from the CSV for the first row: "
+            + ", ".join(unresolved)
+        )
+    if not resolved_cid:
+        raise click.ClickException(
+            "Config 'request_body' must contain 'CustomId' that resolves to a non-empty value from the CSV."
+        )
     summary = {
         "endpoint": f"{cfg.playfab_api_endpoint}/Client/LoginWithCustomID",
         "totalRequests": len(rows),
-        "firstcustomId": sample_row.get("customId"),
+        "resolvedCustomIdExample": resolved_cid,
         "payloadExample": sample_payload,
     }
     sys.stderr.write("=== VERIFICATION ===\n")
@@ -304,7 +333,17 @@ def cmd_with_custom_id(config_path: str, input_csv: str, output_path: str, verbo
     records = []
     for i, row in enumerate(rows, start=1):
         payload = build_request_payload(cfg.request_body_template, row)
-        aid = str(row.get("customId"))
+        unresolved_row = _find_unresolved_placeholders(payload)
+        if unresolved_row:
+            raise click.ClickException(
+                f"Row {i}: some placeholders in request_body could not be resolved from the CSV: "
+                + ", ".join(unresolved_row)
+            )
+        aid = _ensure_custom_id_present(payload)
+        if not aid:
+            raise click.ClickException(
+                f"Row {i}: 'CustomId' from request_body did not resolve to a non-empty value."
+            )
         _log(f"[{i}/{len(rows)}] Requesting LoginWithCustomID for customId='{aid}'", verbose)
         # In verbose mode, show the exact payload as it will be sent (same serialization as the request)
         data_str = json.dumps(payload)

@@ -29,8 +29,8 @@ Useful PlayFab documentation:
     - `pip install .`
 
 2) Prepare your input CSV
-- Use data/input-example.csv as a template. The CSV must have a header column named customId. You can add any number 
-  of additional columns; they can be referenced in the request body using the $.<column-name> notation. Example:
+- Use data/input-example.csv as a template. The CSV can have any header columns you prefer; there is no strict requirement 
+  for a column named customId. Columns can be referenced in the request body using the $.<column-name> notation. Example:
   ```text
   "customId","batchTag"
   "YOUR-PLAYFAB-CUSTOM-ID-001","alpha"
@@ -44,8 +44,8 @@ Useful PlayFab documentation:
 4) Run the tool
 - Example command:
   - `playfab-retrieve with-custom-id --config data/retrieve-config.yml --input data/input.csv --output out.csv`
-- On start, the tool prints a verification summary showing the endpoint, total requests, first customId, and a payload 
-  example. You must confirm to proceed.
+- On start, the tool prints a verification summary showing the endpoint, total requests, a resolvedCustomIdExample 
+  (taken from the first row after substitutions), and a payload example. You must confirm to proceed.
 - Use --verbose to print each request payload and the full response bodies to stderr.
 
 
@@ -58,13 +58,14 @@ After installation, the CLI entry point is available as a command group:
 Commands:
 - with-custom-id
   - Calls PlayFab Client LoginWithCustomID for each row in the CSV.
-  - Requires at least a customId column in the input CSV.
+  - Column names are mapped via '$.<columnName>' in request_body; no fixed 'customId' column is required. The 
+    request_body must include a 'CustomId' value that resolves from the CSV.
 
 with-custom-id options:
 - --config PATH (required)
   - Path to a YAML config file. See Config reference below. Must contain playfab_api_endpoint, request_body, and output.
 - --input PATH (required)
-  - Path to a CSV file with a header column customId. Rows with empty customId are skipped; if none remain, the run aborts.
+  - Path to a CSV file with arbitrary header columns. Values are substituted into request_body via '$.<columnName>' placeholders.
 - --output PATH (required)
   - File path to write results. The output format is determined by output.outputFormat in the config.
 - --verbose (flag)
@@ -72,8 +73,8 @@ with-custom-id options:
   - Note: JSONPath extraction warnings are always printed to stderr, regardless of --verbose.
 
 Exit behavior and errors:
-- The tool raises human-friendly errors if the CSV is unreadable/missing customId, if the config is invalid, or if 
-  output cannot be written.
+- The tool raises human-friendly errors if the CSV is unreadable, if placeholders in request_body cannot be resolved
+  from the CSV, if the request_body lacks a resolvable CustomId, or if output cannot be written.
 - Network errors are reported with a status of 0 and an error message in the response body for that row.
 
 
@@ -130,11 +131,15 @@ output:
 
 Notes and details:
 - playfab_api_endpoint
-  - Your title’s endpoint root, e.g., https://<titleId>.playfabapi.com. The tool appends /Client/LoginWithCustomID when making requests.
+  - Your title’s endpoint root, e.g., https://<titleId>.playfabapi.com. The tool appends /Client/LoginWithCustomID when
+    making requests.
 - request_body
   - This is sent as the JSON body to LoginWithCustomID. See PlayFab docs: https://learn.microsoft.com/en-us/rest/api/playfab/client/authentication/login-with-custom-id?view=playfab-rest
   - Values that look like JSONPath (e.g., strings starting with $. ) are substituted from the current CSV row before 
     sending. For example, CustomId: $.customId reads the customId column value for each row and populates CustomId.
+  - The request_body must contain 'CustomId' and it must resolve to a non-empty value from the CSV for each row. The CLI 
+    validates this during a verification step and will error if unresolved placeholders (e.g., values still starting with $. ) 
+    remain or if CustomId is empty.
   - You can pass InfoRequestParameters to ask PlayFab to include additional info in the response (e.g., GetPlayerProfile, 
     GetUserData with specific UserDataKeys). See the InfoRequestParameters section: https://learn.microsoft.com/en-us/rest/api/playfab/client/authentication/login-with-custom-id?view=playfab-rest#inforequestparameters
   - The tool does not add or remove fields beyond performing these substitutions; it sends exactly what you put in request_body.
