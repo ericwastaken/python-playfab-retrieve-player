@@ -1,0 +1,8 @@
+# Runtime dependencies for python-playfab-retrieve-player
+# Pinned with conservative upper bounds for stability
+setuptools
+click>=8.0,<9
+PyYAML>=6.0,<7
+requests>=2.25,<3
+pandas>=1.5,<3
+jsonpath-ng>=1.5.3,<2
