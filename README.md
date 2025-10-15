@@ -18,6 +18,7 @@ Useful PlayFab documentation:
 - Player profile and data overview: https://learn.microsoft.com/en-us/gaming/playfab/api-references/data-types/player-profile
 - Player data (User Data): https://learn.microsoft.com/en-us/gaming/playfab/features/data/playerdata/
 
+> **Note:** This tool is not by Microsoft PlayFab, nor is it sanctioned by them!
 
 ## Quick start (users)
 
@@ -33,7 +34,8 @@ Useful PlayFab documentation:
   - `python -m venv .venv && .venv/bin/python -m pip install -U pip && .venv/bin/pip install -e .`
 
 2) Prepare your input CSV
-- Use data/input-example-customid.csv (for with-custom-id) or data/input-example-playfabid.csv (for with-playfab-id) as a template. The CSV can have any header columns you prefer; there is no strict requirement 
+- Use data/input-example-customid.csv (for with-custom-id) or data/input-example-playfabid.csv (for with-playfab-id) as 
+  a template. The CSV can have any header columns you prefer; there is no strict requirement 
   for a column named customId. Columns can be referenced in the request body using the $.<column-name> notation. Example:
   ```text
   "customId","batchTag"
@@ -43,7 +45,8 @@ Useful PlayFab documentation:
   
 3) Prepare your config YAML
 - Copy the example that matches your command to a new file (e.g., data/retrieve-config.yml) and edit it. Details of each 
-  field are described below in Config reference. Examples: data/retrieve-config-example-customid.yml (with-custom-id), data/retrieve-config-example-playfabid.yml (with-playfab-id).
+  field are described below in Config reference. Examples: data/retrieve-config-example-customid.yml (with-custom-id), 
+  data/retrieve-config-example-playfabid.yml (with-playfab-id).
 
 4) Run the tool
 - Example command:
@@ -95,7 +98,8 @@ Secrets file format and usage for this command:
 - Reference secrets in config via:
     - Mapping sentinel (entire value is a secret): `X-SecretKey: { $secrets: SERVER_SECRET_KEY }`
     - Inline string (embedded): `Authorization: "Bearer { $secrets: CLOUD_PROD_AUTH_TOKEN }"`
-- Secrets placeholders are supported in request_header and request_body for this command; values are redacted in verification output but used when sending requests.
+- Secrets placeholders are supported in request_header and request_body for this command; values are redacted in verification 
+  output but used when sending requests.
 
 
 ## Config reference
@@ -193,13 +197,15 @@ Follow these steps:
 
 ### with-custom-id
 
-Calls PlayFab Client LoginWithCustomID for each row in your CSV.
+Calls PlayFab Client LoginWithCustomID for each row in your CSV (using client authentication). Use this when you already 
+have PlayFab custom IDs and want to gather info in bulk.
 
 - Endpoint used: <playfab_api_endpoint>/Client/LoginWithCustomID
 - Required in config.request_body:
   - CustomId: must resolve from your input CSV using the $.<column> syntax.
   - InfoRequestParameters: optional. Mirrors the REST API parameters on the Client endpoint.
-- For shared behavior across all commands (config structure, verification, output layout and JSONPath, json_parse options, flow_control, logging), see All Commands.
+- For shared behavior across all commands (config structure, verification, output layout and JSONPath, json_parse options, 
+  flow_control, logging), see All Commands.
 - Example run:
   ```bash
   playfab-retrieve-player with-custom-id \
@@ -260,14 +266,18 @@ output:
 
 ### with-playfab-id
 
-Calls PlayFab Server GetPlayerCombinedInfo for each row in your CSV. Use this when you already have PlayFab player IDs and want to gather combined info in bulk.
+Calls PlayFab Server GetPlayerCombinedInfo for each row in your CSV. Use this when you already have PlayFab player IDs 
+and want to gather combined info in bulk. Uses server authentication which requires an API key for your title. Refer to
+information on using a secrets file to supply the API key.
 
 - Endpoint used: <playfab_api_endpoint>/Server/GetPlayerCombinedInfo
 - Required in config.request_body:
   - PlayFabId: must resolve from your input CSV using the $.<column> syntax.
   - InfoRequestParameters: optional but recommended. Mirrors the REST API parameters.
-- Optional request headers via config.request_header (e.g., X-SecretKey). You can supply secrets via --secrets and reference them in the config.
-- For shared behavior across all commands (config structure, verification, output layout and JSONPath, json_parse options, flow_control, logging), see All Commands.
+- Request headers via config.request_header (e.g., X-SecretKey). You can supply secrets via --secrets and reference them 
+  in the config.
+- For shared behavior across all commands (config structure, verification, output layout and JSONPath, json_parse options, 
+  flow_control, logging), see All Commands.
 
 Example config (see also data/retrieve-config-example-playfabid.yml):
 
@@ -336,7 +346,8 @@ The following concepts and behaviors are common to all sub-commands:
   - Top-level keys: playfab_api_endpoint, request_body, output, optional flow_control.
   - request_body can reference any CSV column using the $.<columnName> notation.
 - Verification step before execution
-  - The CLI prints a summary with the endpoint, totalRequests, an example of the key identifier resolved from the first row, and a payloadExample.
+  - The CLI prints a summary with the endpoint, totalRequests, an example of the key identifier resolved from the first 
+    row, and a payloadExample.
   - You must confirm to proceed.
 - Output formats and layout
   - output.outputFormat: json, yaml, ndjson, or csv.
@@ -374,7 +385,8 @@ The following concepts and behaviors are common to all sub-commands:
               path: json_parse($.response.data.InfoResultPayload.UserData["artifacts"].Value)[-1]
         ```
   - Behavior notes:
-    - If a JSONPath finds multiple values, the CLI returns a list; if exactly one, a scalar; if none, null and a warning (when --verbose).
+    - If a JSONPath finds multiple values, the CLI returns a list; if exactly one, a scalar; if none, null and a warning 
+      (when --verbose).
     - For CSV output, objects/lists are JSON-serialized into the cell.
 - Concurrency and pacing (flow_control)
   - concurrent_requests controls parallelism; delay_s_after_requests adds a per-request pause by each worker.
