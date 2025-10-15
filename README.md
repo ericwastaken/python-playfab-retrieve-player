@@ -1,9 +1,11 @@
 # playfab-retrieve-player
 
-CLI to retrieve PlayFab player information for a list of custom IDs provided in a CSV. The tool lets you:
+CLI to retrieve PlayFab player information for a list of IDs provided in a CSV. The tool lets you:
 - Build the exact request body you want to send to PlayFab (including InfoRequestParameters) using a YAML config.
-- Substitute data from the input CSV into the request body (e.g., set CustomId from a CSV column).
+- Substitute data from the input CSV into the request body (e.g., set CustomId/PlayFabId from a CSV column).
 - Extract fields from PlayFab responses using JSONPath expressions into a structured output in JSON, YAML, NDJSON, or CSV.
+
+> **Note: This tool is not by Microsoft PlayFab, nor is it sanctioned by them!**
 
 This README covers both regular usage and developer notes. It references the examples included in this repository:
 - data/input-example-customid.csv
@@ -14,11 +16,10 @@ This README covers both regular usage and developer notes. It references the exa
 
 Useful PlayFab documentation:
 - LoginWithCustomID REST reference: https://learn.microsoft.com/en-us/rest/api/playfab/client/authentication/login-with-custom-id?view=playfab-rest
+- GetPlayerCombinedInfo REST reference: https://learn.microsoft.com/en-us/rest/api/playfab/server/player-data-management/get-player-combined-info?view=playfab-rest
 - InfoRequestParameters on the same page: https://learn.microsoft.com/en-us/rest/api/playfab/client/authentication/login-with-custom-id?view=playfab-rest#inforequestparameters
 - Player profile and data overview: https://learn.microsoft.com/en-us/gaming/playfab/api-references/data-types/player-profile
 - Player data (User Data): https://learn.microsoft.com/en-us/gaming/playfab/features/data/playerdata/
-
-> **Note:** This tool is not by Microsoft PlayFab, nor is it sanctioned by them!
 
 ## Quick start (users)
 
